@@ -5,7 +5,9 @@ import { InvokeCallbackType } from "./types"
 
 export type Events = 
   | { type: "SESSION_FOUND", data: string } 
-  | { type: "SESSION_NOT_FOUND"}
+  | { type: "SESSION_NOT_FOUND" }
+  | { type: "SESSION_CREATED", data: string }
+  | { type: "SESSION_NOT_CREATED" }
 
 export type Context = {
   session: string | null
@@ -37,30 +39,66 @@ const sessionMachine = createMachine<Context, Events, "session">({
     creatingSession: {
       invoke: {
         src: "creatingSession"
+      }, 
+      on: {
+        SESSION_CREATED: {
+          target: "idle",
+          actions: ["saveSession"]
+        },
+        SESSION_NOT_CREATED: {
+          target: "failure",
+          actions: ["clearSession"]
+        }
       }
     },
     idle: {
+      type: "final"
+    },
+    failure: {
       type: "final"
     }
   }
 }, {
   services: {
-    checkingForSession: () => (cb: InvokeCallbackType) => {
+    checkingForSession: () => async (cb: InvokeCallbackType) => {
       const session = localStorage.getItem(key)
-      if(session) {
-        cb({ type:"SESSION_FOUND", data: session })
-      } else {
-        cb("SESSION_NOT_FOUND")
-      }
+
+      const { data } = await axios.post('/api/testSession', { session })
+      
+      console.log(`Data: `, data)
+      
+
+      // if(session) {
+      //   cb({ type:"SESSION_FOUND", data: session })
+      // } else {
+      //   cb("SESSION_NOT_FOUND")
+      // }
     },
     creatingSession: () => async (cb: InvokeCallbackType) => {
       const { data } = await axios.get('/api/createSession')
-      console.log(`Session: `, data)
+      console.log(`Data: `, data)
+      const { ret_msg, session_id } = data 
+      if(ret_msg === "Approved" && session_id) {
+        cb({ type: "SESSION_CREATED", data: session_id })
+      } else {
+        cb("SESSION_NOT_CREATED")
+      }      
     }
   },
   actions: {
-    saveSession: assign({
-      session: (_, eve) => eve.data
+    saveSession: assign((_, eve) => {
+      localStorage.setItem(key, eve.data)
+
+      return {
+        session: eve.data
+      }
+    }),
+    clearSession: assign(() => {
+      localStorage.removeItem(key)
+      
+      return {
+        session: null
+      }
     })
   }
 })
